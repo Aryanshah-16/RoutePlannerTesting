@@ -1,0 +1,264 @@
+CTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RouteOpener</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --panel: #ffffff; --text: #14202b; --dim: #5d6b78;
+    --accent: #0a7ea4; --ok: #1a8f4a; --danger: #c0392b; --line: #d3dae0;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1317; --panel: #151d23; --text: #e4edf3; --dim: #8396a4;
+      --accent: #36c2ea; --ok: #4fd37f; --danger: #ff6b5b; --line: #26323b;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    padding: 24px 16px;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: var(--accent); letter-spacing: .5px; }
+  .sub { color: var(--dim); margin: 0 0 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  button, input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: bold; }
+  button.primary:hover { color: var(--bg); opacity: .9; }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+  .menu { display: grid; gap: 8px; max-width: 420px; }
+  .menu button { text-align: left; padding: 12px 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=text] { flex: 1; min-width: 160px; }
+  .item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .item:last-child { border-bottom: 0; }
+  .dim { color: var(--dim); font-size: 13px; }
+  .status { color: var(--ok); min-height: 22px; margin-top: 8px; }
+  .status.err { color: var(--danger); }
+  .hidden { display: none; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .field { display: block; width: 100%; max-width: 640px; height: auto; margin: 12px auto 0; border-radius: 6px; border: 1px solid var(--line); }
+  .missing { margin-top: 12px; padding: 16px; border: 1px dashed var(--line); border-radius: 6px; text-align: center; color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>▲ ROUTE OPENER</h1>
+  <p class="sub" id="sub">Main menu</p>
+
+  <!-- START -->
+  <section id="home">
+    <div class="panel menu">
+      <button class="primary" id="btnNew">▶ New route</button>
+      <button id="btnOpen">▶ Open route</button>
+      <button id="btnImport">▶ Import .json file</button>
+      <input type="file" id="fileIn" accept=".json,application/json" class="hidden">
+    </div>
+    <div class="status" id="homeStatus"></div>
+  </section>
+
+  <!-- NEW -->
+  <section id="newScreen" class="hidden">
+    <div class="panel">
+      <h2>New route</h2>
+      <div class="row">
+        <input type="text" id="nameIn" placeholder="route name, e.g. skills_auton" autocomplete="off">
+        <button class="primary" id="btnCreate">Create</button>
+        <button id="btnNewBack">Back</button>
+      </div>
+      <div class="status err" id="newStatus"></div>
+    </div>
+  </section>
+
+  <!-- OPEN LIST -->
+  <section id="openScreen" class="hidden">
+    <div class="panel">
+      <h2>Open route</h2>
+      <div id="list"></div>
+      <div class="row" style="margin-top:12px"><button id="btnOpenBack">Back</button></div>
+    </div>
+  </section>
+
+  <!-- ROUTE (field + save) -->
+  <section id="fileScreen" class="hidden">
+    <div class="panel">
+      <h2 id="fileTitle"></h2>
+      <div class="dim" id="fileMeta"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="btnSave">Save</button>
+        <button id="btnDownload">Download .json</button>
+        <button id="btnFileBack">Back</button>
+      </div>
+      <div class="status" id="fileStatus"></div>
+
+      <img id="fieldImg" class="field" alt="VEX field" src="Field.png">
+      <div id="fieldMissing" class="missing hidden">
+        Couldn’t find <b>Field.png</b> next to this file.<br><br>
+        <button id="btnPickField">Choose Field image…</button>
+        <input type="file" id="fieldIn" accept="image/*" class="hidden">
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Save history</h2>
+      <div id="history"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var KEY = "vex_routeopener_v1";
+  var FIELD_FILE = "Field.png";
+  var db = { routes: {} };   // name -> { data, history: [{time, msg, data}] }
+  var current = null;
+
+  function load() {
+    try { var raw = localStorage.getItem(KEY); if (raw) db = JSON.parse(raw); } catch (e) {}
+    if (!db.routes) db.routes = {};
+  }
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify(db)); return true; } catch (e) { return false; }
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var screens = ["home", "newScreen", "openScreen", "fileScreen"];
+  function show(id, sub) {
+    screens.forEach(function (s) { $(s).classList.toggle("hidden", s !== id); });
+    $("sub").textContent = sub;
+  }
+  function cleanName(s) { return s.trim().replace(/[^A-Za-z0-9_-]/g, "_"); }
+  function fmt(t) { return new Date(t).toLocaleString(); }
+  function setStatus(id, msg, err) { var el = $(id); el.textContent = msg; el.classList.toggle("err", !!err); }
+  function home(msg) { show("home", "Main menu"); setStatus("homeStatus", msg || ""); }
+
+  /* ---------- field image ---------- */
+  var img = $("fieldImg");
+  img.onerror = function () { img.classList.add("hidden"); $("fieldMissing").classList.remove("hidden"); };
+  img.onload = function () { img.classList.remove("hidden"); $("fieldMissing").classList.add("hidden"); };
+  $("btnPickField").onclick = function () { $("fieldIn").click(); };
+  $("fieldIn").onchange = function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    img.src = URL.createObjectURL(f); e.target.value = "";
+  };
+
+  /* ---------- route screen ---------- */
+  function openFile(name) {
+    current = name;
+    show("fileScreen", "Route: " + name);
+    img.src = FIELD_FILE;
+    renderFile("Route ready. Press Save.");
+  }
+  function renderFile(msg) {
+    var r = db.routes[current];
+    $("fileTitle").textContent = current + ".json";
+    $("fileMeta").textContent = "field: " + r.data.field + "  |  " + r.history.length + " saved version" + (r.history.length === 1 ? "" : "s");
+    setStatus("fileStatus", msg || "");
+    var h = $("history"); h.innerHTML = "";
+    if (!r.history.length) { h.innerHTML = '<div class="dim">No saves yet.</div>'; return; }
+    r.history.slice().reverse().forEach(function (v) {
+      var d = document.createElement("div"); d.className = "item";
+      var left = document.createElement("div");
+      left.innerHTML = "<div></div><div class='dim'></div>";
+      left.children[0].textContent = v.msg;
+      left.children[1].textContent = fmt(v.time);
+      d.appendChild(left);
+      var b = document.createElement("button"); b.textContent = "Restore";
+      b.onclick = function () { r.data = JSON.parse(JSON.stringify(v.data)); persist(); renderFile("Restored version from " + fmt(v.time)); };
+      d.appendChild(b); h.appendChild(d);
+    });
+  }
+
+  function saveCurrent() {
+    var r = db.routes[current];
+    r.history.push({
+      time: Date.now(),
+      msg: "Save route " + current + " (v" + (r.history.length + 1) + ")",
+      data: JSON.parse(JSON.stringify(r.data))
+    });
+    if (persist()) renderFile("Saved: " + r.history[r.history.length - 1].msg);
+    else setStatus("fileStatus", "Save failed (browser storage unavailable). Use Download .json.", true);
+  }
+
+  function download() {
+    var r = db.routes[current];
+    var blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = current + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    setStatus("fileStatus", "Downloaded " + current + ".json");
+  }
+
+  /* ---------- menu wiring ---------- */
+  $("btnNew").onclick = function () { show("newScreen", "New route"); setStatus("newStatus", ""); $("nameIn").value = ""; $("nameIn").focus(); };
+  $("btnNewBack").onclick = function () { home(); };
+  function create() {
+    var name = cleanName($("nameIn").value);
+    if (!name) { setStatus("newStatus", "Enter a name first.", true); return; }
+    if (db.routes[name]) { setStatus("newStatus", "\u2018" + name + "\u2019 already exists. Use Open route.", true); return; }
+    db.routes[name] = { data: { name: name, field: FIELD_FILE, waypoints: [] }, history: [] };
+    persist(); openFile(name); saveCurrent();
+  }
+  $("btnCreate").onclick = create;
+  $("nameIn").onkeydown = function (e) { if (e.key === "Enter") create(); };
+
+  $("btnOpen").onclick = function () {
+    var names = Object.keys(db.routes).sort();
+    if (!names.length) { home("No saved routes yet. Create one first."); return; }
+    var l = $("list"); l.innerHTML = "";
+    names.forEach(function (n) {
+      var d = document.createElement("div"); d.className = "item";
+      var left = document.createElement("div");
+      left.innerHTML = "<div></div><div class='dim'></div>";
+      var hist = db.routes[n].history;
+      left.children[0].textContent = n + ".json";
+      left.children[1].textContent = hist.length ? "last saved " + fmt(hist[hist.length - 1].time) : "never saved";
+      d.appendChild(left);
+      var box = document.createElement("div"); box.className = "row";
+      var o = document.createElement("button"); o.textContent = "Open"; o.onclick = function () { openFile(n); };
+      var x = document.createElement("button"); x.textContent = "Delete"; x.className = "danger";
+      x.onclick = function () { if (confirm("Delete " + n + " and its history?")) { delete db.routes[n]; persist(); $("btnOpen").onclick(); } };
+      box.appendChild(o); box.appendChild(x); d.appendChild(box); l.appendChild(d);
+    });
+    show("openScreen", "Open route");
+  };
+  $("btnOpenBack").onclick = function () { home(); };
+
+  $("btnImport").onclick = function () { $("fileIn").click(); };
+  $("fileIn").onchange = function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        var data = JSON.parse(rd.result);
+        var name = cleanName(data.name || f.name.replace(/\.json$/i, ""));
+        if (!name) throw new Error("no name");
+        data.name = name; data.field = data.field || FIELD_FILE; data.waypoints = data.waypoints || [];
+        db.routes[name] = db.routes[name] || { data: data, history: [] };
+        db.routes[name].data = data; persist(); openFile(name); saveCurrent();
+      } catch (err) { home("That file isn\u2019t valid route JSON."); }
+    };
+    rd.readAsText(f); e.target.value = "";
+  };
+
+  $("btnSave").onclick = saveCurrent;
+  $("btnDownload").onclick = download;
+  $("btnFileBack").onclick = function () { home(); };
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s" && !$("fileScreen").classList.contains("hidden")) { e.preventDefault(); saveCurrent(); }
+  });
+
+  load(); home();
+})();
+</script>
+</body>
+</html>
+
